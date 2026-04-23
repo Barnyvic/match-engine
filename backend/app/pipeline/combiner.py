@@ -15,6 +15,31 @@ def apply_context_adjustment(row: pd.Series, context_score: int) -> dict[str, fl
     return {"prob_H": home / total, "prob_D": draw / total, "prob_A": away / total}
 
 
+def apply_form_sanity_adjustment(row: pd.Series, probabilities: dict[str, float]) -> dict[str, float]:
+    home_form = float(row.get("home_recent_points", 0.0))
+    away_form = float(row.get("away_recent_points", 0.0))
+    home_goal_diff = float(row.get("home_recent_goal_diff", 0.0))
+    away_goal_diff = float(row.get("away_recent_goal_diff", 0.0))
+    form_gap = home_form - away_form
+    goal_diff_gap = home_goal_diff - away_goal_diff
+
+    # If recent form strongly favors away but model still prefers home, damp the home edge.
+    if form_gap <= -0.8 and goal_diff_gap <= -0.6 and probabilities["prob_H"] > probabilities["prob_A"]:
+        shift = min(0.08, (abs(form_gap) * 0.04) + (abs(goal_diff_gap) * 0.02))
+        adjusted = {
+            "prob_H": max(0.01, probabilities["prob_H"] - shift),
+            "prob_D": max(0.01, probabilities["prob_D"]),
+            "prob_A": max(0.01, probabilities["prob_A"] + shift),
+        }
+        total = adjusted["prob_H"] + adjusted["prob_D"] + adjusted["prob_A"]
+        return {
+            "prob_H": adjusted["prob_H"] / total,
+            "prob_D": adjusted["prob_D"] / total,
+            "prob_A": adjusted["prob_A"] / total,
+        }
+    return probabilities
+
+
 def confidence_tier(probabilities: dict[str, float]) -> str:
     top_probability = max(probabilities.values())
     if top_probability >= 0.56:
@@ -27,6 +52,7 @@ def confidence_tier(probabilities: dict[str, float]) -> str:
 def combine_fixture_prediction(row: pd.Series) -> dict[str, Any]:
     context = groq_context_adjustment(row["home_team"], row["away_team"])
     adjusted = apply_context_adjustment(row, int(context.get("context_score", 0)))
+    adjusted = apply_form_sanity_adjustment(row, adjusted)
     predicted_result = max(adjusted, key=adjusted.get).replace("prob_", "")
     return {
         "match_date": pd.Timestamp(row["match_date"]).strftime("%Y-%m-%d"),
