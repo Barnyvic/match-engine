@@ -32,6 +32,12 @@
           "value": "https://d3h21w0k2lv21j.cloudfront.net"
         }
       ],
+      "secrets": [
+        {
+          "name": "GROQ_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:590183970118:secret:match-engine/groq_api_key"
+        }
+      ],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {

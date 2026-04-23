@@ -94,6 +94,16 @@ Recommended values:
 - `FRONTEND_CLOUDFRONT_DISTRIBUTION_ID=E3UKL233DTS9JM`
 - `NEXT_PUBLIC_API_BASE_URL=https://d3o9qgqn8buh5g.cloudfront.net`
 
+### Groq integration (backend runtime secret)
+
+Groq is consumed by the backend only. Configure `GROQ_API_KEY` in AWS Secrets Manager and inject it into the ECS task.
+
+- Secret name: `match-engine/groq_api_key`
+- ECS task definition: `infra/ecs/backend-task-definition.json` includes a `secrets` mapping for `GROQ_API_KEY`
+- ECS execution role must allow `secretsmanager:GetSecretValue` on that secret
+
+If the secret is missing/invalid, backend falls back to neutral context messaging.
+
 ### End-to-end flow
 
 1. Push to a branch or open a PR: CI runs automatically.
