@@ -1,0 +1,14 @@
+.git
+.github
+.qodo
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.venv
+**/node_modules
+**/.next
+**/.env
+**/.env.local
+database.sqlite3
+database.sqlite3-shm
+database.sqlite3-wal
