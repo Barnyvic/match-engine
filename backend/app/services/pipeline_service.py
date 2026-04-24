@@ -196,7 +196,90 @@ def predict_matchup(competition: str, home_team: str, away_team: str) -> dict[st
     if home_team == away_team:
         raise ValueError("Home and away teams must be different.")
 
-    snapshot = get_pipeline_snapshot(competition)
+    league = _resolve_league(competition)
+    teams = load_league_teams(league["league_code"])
+    if home_team not in teams:
+        raise ValueError(f"{home_team} is not available in {league['name']}.")
+    if away_team not in teams:
+        raise ValueError(f"{away_team} is not available in {league['name']}.")
+
+    with _lock:
+        snapshot = (_cache.payloads or {}).get(competition)
+
+    if snapshot is None:
+        history = load_matches_df(league["league_code"])
+        if history.empty:
+            snapshot = get_pipeline_snapshot(competition, force_refresh=True)
+        else:
+            history_features = build_feature_frame(history)
+            _, states, _ = build_team_state_snapshot(history_features)
+            home_state = states.get(home_team)
+            away_state = states.get(away_team)
+            if home_state is None or away_state is None:
+                raise ValueError("Could not build team state for matchup.")
+
+            expected_home = 1.0 / (1.0 + 10 ** (((away_state.current_elo) - (home_state.current_elo + 60.0)) / 400.0))
+            draw_prob = 0.24
+            home_prob = expected_home * (1.0 - draw_prob)
+            away_prob = (1.0 - expected_home) * (1.0 - draw_prob)
+            today = pd.Timestamp.utcnow().tz_localize(None).normalize()
+            home_rest_days = int((today - home_state.last_match_date).days) if home_state.last_match_date is not None else 7
+            away_rest_days = int((today - away_state.last_match_date).days) if away_state.last_match_date is not None else 7
+
+            matchup_row = pd.Series(
+                {
+                    "match_date": today,
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "prob_H": home_prob,
+                    "prob_D": draw_prob,
+                    "prob_A": away_prob,
+                    "bookmaker_home_odds": None,
+                    "bookmaker_draw_odds": None,
+                    "bookmaker_away_odds": None,
+                    "home_recent_points": float(sum(home_state.points_last5) / max(len(home_state.points_last5), 1)),
+                    "away_recent_points": float(sum(away_state.points_last5) / max(len(away_state.points_last5), 1)),
+                    "home_recent_goal_diff": float(sum(home_state.goal_diff_last5) / max(len(home_state.goal_diff_last5), 1)),
+                    "away_recent_goal_diff": float(sum(away_state.goal_diff_last5) / max(len(away_state.goal_diff_last5), 1)),
+                    "home_rest_days": float(home_rest_days),
+                    "away_rest_days": float(away_rest_days),
+                }
+            )
+            prediction = combine_fixture_prediction(matchup_row)
+            stats = {
+                "home_elo": round(home_state.current_elo, 1),
+                "away_elo": round(away_state.current_elo, 1),
+                "elo_gap": round(home_state.current_elo - away_state.current_elo, 1),
+                "home_form_points": sum(home_state.points_last5),
+                "away_form_points": sum(away_state.points_last5),
+                "home_rest_days": home_rest_days,
+                "away_rest_days": away_rest_days,
+            }
+            probability_chart = [
+                {"label": "Home Win", "value": prediction["adjusted_probabilities"]["home"]},
+                {"label": "Draw", "value": prediction["adjusted_probabilities"]["draw"]},
+                {"label": "Away Win", "value": prediction["adjusted_probabilities"]["away"]},
+            ]
+            return {
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "competition": competition,
+                "league": league["name"],
+                "summary": {
+                    "headline": f"{home_team} vs {away_team}",
+                    "predicted_outcome": _result_label(prediction["predicted_result"]),
+                    "confidence_tier": prediction["confidence_tier"],
+                    "competition": league["name"],
+                },
+                "prediction": prediction,
+                "probability_chart": probability_chart,
+                "stats": stats,
+                "form": {
+                    "home_team": _recent_form(history, home_team),
+                    "away_team": _recent_form(history, away_team),
+                },
+                "head_to_head": _head_to_head(history, home_team, away_team),
+            }
+
     teams = snapshot["teams"]
     if home_team not in teams:
         raise ValueError(f"{home_team} is not available in {snapshot['league']}.")
