@@ -198,7 +198,7 @@ export default function HomePage() {
           <h1>Search any club matchup.</h1>
           <p className="hero-text">
             Pick a competition, choose both teams, and get one clean prediction
-            with probability bars, core stats, recent form, and Groq context.
+            with probability bars, core stats, recent form.
           </p>
         </div>
 
@@ -309,7 +309,7 @@ export default function HomePage() {
               </div>
 
               <div className="context-card">
-                <p className="eyebrow">Groq Context</p>
+                <p className="eyebrow">Context</p>
                 <p>{matchup.prediction.context.summary}</p>
               </div>
             </>
