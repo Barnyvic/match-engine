@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 from sklearn.preprocessing import StandardScaler
@@ -208,7 +209,9 @@ def walk_forward_validation(
 
         model = LogisticRegression(max_iter=300)
         model.fit(x_train, train["target"])
-        probs = model.predict_proba(x_test)
+        calibrated = CalibratedClassifierCV(estimator=model, method="sigmoid", cv=3)
+        calibrated.fit(x_train, train["target"])
+        probs = calibrated.predict_proba(x_test)
 
         batch = test[
             [
@@ -245,7 +248,14 @@ def train_latest_model(features_df: pd.DataFrame) -> dict[str, object]:
     x = scaler.fit_transform(clean[FEATURE_COLUMNS])
     model = LogisticRegression(max_iter=300)
     model.fit(x, clean["target"])
-    return {"model": model, "scaler": scaler, "training_rows": int(len(clean))}
+    calibrated_model = CalibratedClassifierCV(estimator=model, method="sigmoid", cv=3)
+    calibrated_model.fit(x, clean["target"])
+    return {
+        "model": model,
+        "calibrated_model": calibrated_model,
+        "scaler": scaler,
+        "training_rows": int(len(clean)),
+    }
 
 
 def build_fixture_features(history_features: pd.DataFrame, fixtures_df: pd.DataFrame) -> pd.DataFrame:
@@ -347,7 +357,8 @@ def score_fixtures(trained: dict[str, object], fixture_features: pd.DataFrame) -
         return fixture_features.copy()
 
     x = trained["scaler"].transform(fixture_features[FEATURE_COLUMNS])
-    probs = trained["model"].predict_proba(x)
+    predictor = trained.get("calibrated_model") or trained["model"]
+    probs = predictor.predict_proba(x)
     scored = fixture_features.copy()
     for index, code in enumerate(CLASS_ORDER):
         scored[f"prob_{code}"] = probs[:, index]

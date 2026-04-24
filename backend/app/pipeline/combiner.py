@@ -4,7 +4,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.pipeline.llm_layer import groq_context_adjustment
+from app.pipeline.context_provider import get_context_adjustment
 
 
 def apply_context_adjustment(row: pd.Series, context_score: int) -> dict[str, float]:
@@ -50,7 +50,7 @@ def confidence_tier(probabilities: dict[str, float]) -> str:
 
 
 def combine_fixture_prediction(row: pd.Series) -> dict[str, Any]:
-    context = groq_context_adjustment(row["home_team"], row["away_team"])
+    context = get_context_adjustment(row["home_team"], row["away_team"])
     adjusted = apply_context_adjustment(row, int(context.get("context_score", 0)))
     adjusted = apply_form_sanity_adjustment(row, adjusted)
     predicted_result = max(adjusted, key=adjusted.get).replace("prob_", "")

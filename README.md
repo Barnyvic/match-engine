@@ -104,6 +104,26 @@ Groq is consumed by the backend only. Configure `GROQ_API_KEY` in AWS Secrets Ma
 
 If the secret is missing/invalid, backend falls back to neutral context messaging.
 
+### MCP context provider (optional)
+
+The backend supports a pluggable context provider. By default it uses Groq, but you can switch to MCP-backed context:
+
+- `CONTEXT_PROVIDER=groq` (default)
+- `CONTEXT_PROVIDER=mcp`
+
+MCP-related env vars in `backend/.env`:
+
+- `MCP_SERVER_URL` - JSON-RPC endpoint for your MCP server (for example a local MCP HTTP bridge)
+- `MCP_TOOL_NAME` - tool used for odds/context extraction (default `findEventsAndMarketsByCompetition`)
+- `MCP_TIMEOUT_SECONDS` - request timeout for MCP calls
+
+Recommended MCP servers to evaluate for sports enrichment:
+
+- [odds-api-io/odds-api-mcp-server](https://github.com/odds-api-io/odds-api-mcp-server)
+- [axc9000/odds-api-mcp-server](https://github.com/axc9000/odds-api-mcp-server)
+- [Cloudbet Sports MCP](https://cloudbet.github.io/wiki/en/docs/sports/api/mcp_integration/)
+- [google-research-mcp](https://github.com/zoharbabin/google-research-mcp) for news enrichment
+
 ### End-to-end flow
 
 1. Push to a branch or open a PR: CI runs automatically.
