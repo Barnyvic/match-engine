@@ -204,7 +204,8 @@ def _load_recent_history_from_source(competition: str) -> pd.DataFrame:
     sources = build_season_sources(competition)
     if not sources:
         return pd.DataFrame()
-    raw = fetch_csv(sources[-1].source_url)
+    source = sources[-1]
+    raw = fetch_csv(source.source_url)
     if "FTR" not in raw.columns:
         return pd.DataFrame()
     filtered = raw[raw["FTR"].isin(["H", "D", "A"])].copy()
@@ -217,7 +218,7 @@ def _load_recent_history_from_source(competition: str) -> pd.DataFrame:
     filtered["bookmaker_home_odds"] = pd.to_numeric(filtered.get("B365H"), errors="coerce")
     filtered["bookmaker_draw_odds"] = pd.to_numeric(filtered.get("B365D"), errors="coerce")
     filtered["bookmaker_away_odds"] = pd.to_numeric(filtered.get("B365A"), errors="coerce")
-    return filtered.rename(
+    normalized = filtered.rename(
         columns={
             "HomeTeam": "home_team",
             "AwayTeam": "away_team",
@@ -236,6 +237,9 @@ def _load_recent_history_from_source(competition: str) -> pd.DataFrame:
             "bookmaker_away_odds",
         ]
     ]
+    normalized["season_code"] = source.season_code
+    normalized["league_code"] = LEAGUES[competition]["league_code"]
+    return normalized
 
 
 def predict_matchup(competition: str, home_team: str, away_team: str) -> dict[str, Any]:
