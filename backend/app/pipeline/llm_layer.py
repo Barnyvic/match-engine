@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import xml.etree.ElementTree as ET
 from functools import lru_cache
 from typing import Any
@@ -58,7 +57,7 @@ def fallback_context(
 ) -> dict[str, Any]:
     return {
         "context_score": 0,
-        "summary": f"Contextual adjustment is neutral for {home_team} vs {away_team}. Reason: {reason}",
+        "summary": f"No context gotten for {home_team} vs {away_team}.",
         "home_team_news_count": len(home_news),
         "away_team_news_count": len(away_news),
         "confidence": "low",
@@ -85,7 +84,7 @@ def groq_context_adjustment(home_team: str, away_team: str) -> dict[str, Any]:
             ),
         }
         response = client.chat.completions.create(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            model=get_runtime_setting("GROQ_MODEL", "llama-3.1-8b-instant") or "llama-3.1-8b-instant",
             messages=[
                 {
                     "role": "system",
