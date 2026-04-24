@@ -330,3 +330,23 @@ def load_league_teams(league_code: str) -> list[str]:
             (league_code, league_code),
         ).fetchall()
     return [row["team_name"] for row in rows]
+
+
+def load_league_teams_from_source(league_key: str) -> list[str]:
+    if league_key not in LEAGUES:
+        return []
+    sources = build_season_sources(league_key)
+    if not sources:
+        return []
+    latest_source = sources[-1]
+    raw_df = fetch_csv(latest_source.source_url)
+    if "HomeTeam" not in raw_df.columns or "AwayTeam" not in raw_df.columns:
+        return []
+    teams = sorted(
+        {
+            str(team).strip()
+            for team in list(raw_df["HomeTeam"].dropna().tolist()) + list(raw_df["AwayTeam"].dropna().tolist())
+            if str(team).strip()
+        }
+    )
+    return teams
