@@ -49,14 +49,20 @@ def fetch_team_news(team_name: str) -> list[dict[str, str]]:
     return articles[:5]
 
 
-def fallback_context(home_team: str, away_team: str, home_news: list[dict[str, str]], away_news: list[dict[str, str]]) -> dict[str, Any]:
+def fallback_context(
+    home_team: str,
+    away_team: str,
+    home_news: list[dict[str, str]],
+    away_news: list[dict[str, str]],
+    reason: str = "GROQ_API_KEY is missing.",
+) -> dict[str, Any]:
     return {
         "context_score": 0,
-        "summary": f"No Groq key configured, so contextual adjustment is neutral for {home_team} vs {away_team}.",
+        "summary": f"Contextual adjustment is neutral for {home_team} vs {away_team}. Reason: {reason}",
         "home_team_news_count": len(home_news),
         "away_team_news_count": len(away_news),
         "confidence": "low",
-        "drivers": ["Fallback neutral context used because GROQ_API_KEY is missing."],
+        "drivers": [f"Fallback neutral context used because {reason}"],
     }
 
 
@@ -65,7 +71,7 @@ def groq_context_adjustment(home_team: str, away_team: str) -> dict[str, Any]:
     away_news = fetch_team_news(away_team)
     groq_api_key = get_runtime_setting("GROQ_API_KEY")
     if not groq_api_key or groq_api_key == "your_groq_key_here":
-        return fallback_context(home_team, away_team, home_news, away_news)
+        return fallback_context(home_team, away_team, home_news, away_news, reason="GROQ_API_KEY is missing.")
 
     try:
         client = Groq(api_key=groq_api_key)
@@ -98,5 +104,5 @@ def groq_context_adjustment(home_team: str, away_team: str) -> dict[str, Any]:
         parsed.setdefault("summary", f"Neutral contextual output for {home_team} vs {away_team}.")
         parsed.setdefault("drivers", [])
         return parsed
-    except Exception:
-        return fallback_context(home_team, away_team, home_news, away_news)
+    except Exception as exc:
+        return fallback_context(home_team, away_team, home_news, away_news, reason=f"Groq request failed ({exc}).")
