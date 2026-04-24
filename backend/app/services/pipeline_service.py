@@ -12,7 +12,15 @@ from app.config import settings
 from app.db import init_db
 from app.pipeline.backtest import run_backtest
 from app.pipeline.combiner import combine_fixture_prediction
-from app.pipeline.data_pipeline import LEAGUES, fetch_upcoming_fixtures, ingest_league_history, load_league_teams, load_matches_df
+from app.pipeline.data_pipeline import (
+    LEAGUES,
+    build_season_sources,
+    fetch_csv,
+    fetch_upcoming_fixtures,
+    ingest_league_history,
+    load_league_teams,
+    load_matches_df,
+)
 from app.pipeline.model import (
     build_feature_frame,
     build_fixture_features,
@@ -192,11 +200,98 @@ def _head_to_head(history: pd.DataFrame, home_team: str, away_team: str, limit: 
     return items
 
 
+def _load_recent_history_from_source(competition: str) -> pd.DataFrame:
+    sources = build_season_sources(competition)
+    if not sources:
+        return pd.DataFrame()
+    raw = fetch_csv(sources[-1].source_url)
+    if "FTR" not in raw.columns:
+        return pd.DataFrame()
+    filtered = raw[raw["FTR"].isin(["H", "D", "A"])].copy()
+    if filtered.empty:
+        return pd.DataFrame()
+    filtered["match_date"] = pd.to_datetime(filtered["Date"], dayfirst=True, errors="coerce")
+    filtered = filtered.dropna(subset=["match_date", "HomeTeam", "AwayTeam"])
+    filtered["full_time_home_goals"] = pd.to_numeric(filtered.get("FTHG"), errors="coerce").fillna(0).astype(int)
+    filtered["full_time_away_goals"] = pd.to_numeric(filtered.get("FTAG"), errors="coerce").fillna(0).astype(int)
+    filtered["bookmaker_home_odds"] = pd.to_numeric(filtered.get("B365H"), errors="coerce")
+    filtered["bookmaker_draw_odds"] = pd.to_numeric(filtered.get("B365D"), errors="coerce")
+    filtered["bookmaker_away_odds"] = pd.to_numeric(filtered.get("B365A"), errors="coerce")
+    return filtered.rename(
+        columns={
+            "HomeTeam": "home_team",
+            "AwayTeam": "away_team",
+            "FTR": "full_time_result",
+        }
+    )[
+        [
+            "match_date",
+            "home_team",
+            "away_team",
+            "full_time_home_goals",
+            "full_time_away_goals",
+            "full_time_result",
+            "bookmaker_home_odds",
+            "bookmaker_draw_odds",
+            "bookmaker_away_odds",
+        ]
+    ]
+
+
 def predict_matchup(competition: str, home_team: str, away_team: str) -> dict[str, Any]:
     if home_team == away_team:
         raise ValueError("Home and away teams must be different.")
 
-    snapshot = get_pipeline_snapshot(competition)
+    with _lock:
+        snapshot = (_cache.payloads or {}).get(competition)
+    if snapshot is None:
+        recent_history = _load_recent_history_from_source(competition)
+        if recent_history.empty:
+            snapshot = get_pipeline_snapshot(competition)
+        else:
+            history_features = build_feature_frame(recent_history)
+            trained = train_latest_model(history_features)
+            matchup_features = build_matchup_feature_row(history_features, home_team, away_team)
+            scored = score_fixtures(trained, matchup_features)
+            prediction = combine_fixture_prediction(scored.iloc[0])
+            _, states, _ = build_team_state_snapshot(history_features)
+            home_state = states.get(home_team)
+            away_state = states.get(away_team)
+
+            probability_chart = [
+                {"label": "Home Win", "value": prediction["adjusted_probabilities"]["home"]},
+                {"label": "Draw", "value": prediction["adjusted_probabilities"]["draw"]},
+                {"label": "Away Win", "value": prediction["adjusted_probabilities"]["away"]},
+            ]
+
+            return {
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "competition": competition,
+                "league": _resolve_league(competition)["name"],
+                "summary": {
+                    "headline": f"{home_team} vs {away_team}",
+                    "predicted_outcome": _result_label(prediction["predicted_result"]),
+                    "confidence_tier": prediction["confidence_tier"],
+                    "competition": _resolve_league(competition)["name"],
+                },
+                "prediction": prediction,
+                "probability_chart": probability_chart,
+                "stats": {
+                    "home_elo": round(home_state.current_elo, 1) if home_state else 1500.0,
+                    "away_elo": round(away_state.current_elo, 1) if away_state else 1500.0,
+                    "elo_gap": round((home_state.current_elo if home_state else 1500.0) - (away_state.current_elo if away_state else 1500.0), 1),
+                    "home_form_points": sum(home_state.points_last5) if home_state else 0,
+                    "away_form_points": sum(away_state.points_last5) if away_state else 0,
+                    "home_rest_days": int(scored.iloc[0]["home_rest_days"]),
+                    "away_rest_days": int(scored.iloc[0]["away_rest_days"]),
+                },
+                "form": {
+                    "home_team": _recent_form(recent_history, home_team),
+                    "away_team": _recent_form(recent_history, away_team),
+                },
+                "head_to_head": _head_to_head(recent_history, home_team, away_team),
+            }
+
     teams = snapshot["teams"]
     if home_team not in teams:
         raise ValueError(f"{home_team} is not available in {snapshot['league']}.")
