@@ -140,7 +140,11 @@ def list_competitions() -> list[dict[str, Any]]:
 
 
 def list_teams_for_competition(competition: str) -> list[str]:
-    snapshot = get_pipeline_snapshot(competition)
+    league = _resolve_league(competition)
+    teams = load_league_teams(league["league_code"])
+    if teams:
+        return teams
+    snapshot = get_pipeline_snapshot(competition, force_refresh=True)
     return snapshot["teams"]
 
 
